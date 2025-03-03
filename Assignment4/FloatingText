@@ -1,0 +1,180 @@
+import controlP5.*;
+
+int cols = 15;
+int rows = 15;
+float cellSize;
+String inputText = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!?@#$%^&*";
+float[][] noiseValues;
+ControlP5 cp5;
+float timeFactor = 0;
+int lastUpdateTime = 0;
+int updateInterval = 8; // Delay in milliseconds
+ArrayList<PVector> trail = new ArrayList<>(); // Store mouse trail positions
+int trailLength = 10; // Reduce trail length to impact fewer letters // Number of positions stored
+
+float transitionFactor = 0.5; // Default wavery intensity
+
+int overlayIndex = 0;
+boolean overlayActive = false;
+int overlayStartTime = 0;
+
+void startOverlayText() {
+  overlayIndex = 0;
+  overlayActive = true;
+  overlayStartTime = millis();
+}
+  void setup() {
+  size(800, 800);
+  frameRate(30);
+  cellSize = width / cols;
+  noiseValues = new float[cols][rows];
+  
+  for (int i = 0; i < cols; i++) {
+    for (int j = 0; j < rows; j++) {
+      noiseValues[i][j] = random(1000);
+    }
+  }
+  cp5 = new ControlP5(this);
+  cp5.addSlider("transitionFactor")
+     .setPosition(550, height - 40)
+     .setSize(150, 20)
+     .setRange(0, 1)
+     .setValue(0.5)
+     .onChange(new CallbackListener() {
+       public void controlEvent(CallbackEvent event) {
+         transitionFactor = event.getController().getValue();
+       }
+     }); // Initialize cp5 first
+  textAlign(CENTER, CENTER);
+  String[] fonts = {"Courier New", "Arial", "Georgia", "Verdana"};
+  final int[] selectedFontIndex = {0};
+  PFont customFont = createFont(fonts[selectedFontIndex[0]], cellSize * 0.8);
+  textFont(customFont);
+  
+  cp5.addScrollableList("Font Selector")
+     .setPosition(350, height - 40)
+     .setSize(150, 100)
+     .setBarHeight(30)
+     .setItemHeight(20)
+     .addItems(java.util.Arrays.asList(fonts))
+     .onChange(new CallbackListener() {
+       public void controlEvent(CallbackEvent event) {
+         selectedFontIndex[0] = (int) event.getController().getValue();
+         PFont customFont = createFont(fonts[selectedFontIndex[0]], cellSize * 0.8);
+         textFont(customFont);
+       }
+     });
+  textFont(customFont);
+  
+  cp5 = new ControlP5(this);
+  cp5.addTextfield("Input Text")
+     .setInputFilter(ControlP5.STRING)
+     .onEnter(new CallbackListener() {
+       public void controlEvent(CallbackEvent event) {
+         startOverlayText();
+       }
+     })
+     .onRelease(new CallbackListener() {
+       public void controlEvent(CallbackEvent event) {
+         startOverlayText();
+       }
+     })
+     .setPosition(20, height - 40)
+     .setSize(300, 30)
+     .setFont(createFont("Arial", 18))
+     .setAutoClear(false)
+     .onChange(new CallbackListener() {
+       public void controlEvent(CallbackEvent event) {
+         inputText = cp5.get(Textfield.class, "Input Text").getText();
+         if (inputText.length() > 50) { // Limit input text length to prevent memory issues
+           inputText = inputText.substring(0, 50);
+         }
+       }
+     });
+}
+
+void drawOverlayText() {
+  if (overlayActive && overlayIndex < inputText.length()) {
+    int currentTime = millis();
+    if (currentTime - overlayStartTime > 500) { // Show each letter for 0.5 seconds
+      overlayIndex++;
+      overlayStartTime = currentTime;
+    }
+    if (overlayIndex < inputText.length()) {
+      fill(0);
+      textSize(250); // Super big text
+      textFont(createFont("Courier-Bold", 250)); // Thick black typewriter-style font
+      textSize(100);
+      text(inputText.charAt(overlayIndex), width / 2, height / 2);
+    } else {
+      overlayActive = false;
+    }
+  }
+}
+
+void draw() {
+  background(255, 200, 220); // Soft pink background
+  timeFactor += 0.05; // Increase speed for more exaggerated motion
+  
+  // Update mouse trail
+  trail.add(new PVector(mouseX, mouseY));
+  if (trail.size() > trailLength) {
+    trail.remove(0); // Remove oldest position to maintain trail length
+  }
+  
+  if (millis() - lastUpdateTime > updateInterval) { // Add delay to reduce processing load
+    lastUpdateTime = millis();
+    
+    for (int i = 0; i < cols; i++) {
+      for (int j = 0; j < rows; j++) {
+        float baseX = i * cellSize + cellSize / 2;
+        float baseY = j * cellSize + cellSize / 2;
+        
+        // Apply Perlin noise-based wavy motion
+         // Control transition between grid and wavy
+        float gridX = baseX;
+        float gridY = baseY;
+        float waveX = baseX + map(noise(noiseValues[i][j] + timeFactor), 0, 1, -30, 30);
+        float waveY = baseY + map(noise(noiseValues[i][j] + timeFactor + 1000), 0, 1, -30, 30);
+        float x = lerp(gridX, waveX, transitionFactor);
+        float y = lerp(gridY, waveY, transitionFactor); // Increase range for more exaggerated motion
+        float yOffset = map(noise(noiseValues[i][j] + timeFactor + 1000), 0, 1, -30, 30); // Increase range for more exaggerated motion
+        
+        // float x = baseX + xOffset; (Removed duplicate)
+        // float y = baseY + yOffset; (Removed duplicate)
+        float d = dist(mouseX, mouseY, x, y);
+        
+        // Check if near a trail point
+        for (PVector t : trail) {
+          float trailDist = dist(t.x, t.y, x, y);
+          if (trailDist < cellSize * 1.2) { // Reduce trail impact area
+            d = trailDist; // Adjust distance effect if near the trail
+          }
+        }
+        
+        float noiseValue = noise(noiseValues[i][j]);
+        float sizeFactor = map(noiseValue, 0, 1, 0.5, 1.1);
+        float alpha = map(noiseValue, 0, 1, 150, 255);
+        
+        char displayChar = inputText.charAt(int(random(inputText.length()))); // 随机变化字符
+        
+        if (d < cellSize * 1.2) {
+          sizeFactor *= map(d, 0, cellSize * 4, 1.5, 1);
+          alpha *= map(d, 0, cellSize * 2, 255, 150);
+          displayChar = inputText.charAt((i + j) % inputText.length());
+        }
+        
+        float hueShift = map(noise(timeFactor), 0, 1, 0, 255);
+        float yellowIntensity = map(d, 0, cellSize * 2, 50, 80); // Closer to mouse is brighter yellow
+        float trailIntensity = 255 - map(d, 0, cellSize * 2, 50, 80); // Further in trail is lighter yellow
+        if (d < cellSize * 2) {
+          fill(255, yellowIntensity, 100, alpha); // Brighter yellow near mouse
+        } else {
+          fill(50, 100, 255, alpha); // Keep rest of the text fully blue
+        } // Dynamic color shift // Blue text with transparency
+        textSize(cellSize * sizeFactor);
+        text(displayChar, x, y);
+      }
+    }
+  }
+}
